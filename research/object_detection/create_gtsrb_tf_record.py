@@ -31,6 +31,8 @@ import logging
 import os
 import random
 import re
+import sys
+import pandas as pd
 
 
 from lxml import etree
@@ -41,9 +43,9 @@ from object_detection.utils import dataset_util
 from object_detection.utils import label_map_util
 
 flags = tf.app.flags
-flags.DEFINE_string('data_dir', '', 'Root directory to raw pet dataset.')
-flags.DEFINE_string('output_dir', '', 'Path to directory to output TFRecords.')
-flags.DEFINE_string('label_map_path', 'data/pet_label_map.pbtxt',
+flags.DEFINE_string('data_dir', 'data/', 'Root directory to raw pet dataset.')
+flags.DEFINE_string('output_dir', 'data/', 'Path to directory to output TFRecords.')
+flags.DEFINE_string('label_map_path', 'data/gtsrb_traffic_sign_label_map.pbtxt',
                     'Path to label map proto')
 FLAGS = flags.FLAGS
 
@@ -146,6 +148,104 @@ def dict_to_tf_example(data,
   }))
   return example
 
+def dict_to_gtsrb_tf_example(data,
+                             label_map_dict,
+                             image_subdirectory,
+                             sign_names):
+  """Convert txt derived dict to tf.Example proto.
+
+  Notice that this function normalizes the bounding box coordinates provided
+  by the raw data.
+
+  Args:
+    data: dict holding GTSRB annotation fields for a single image (obtained by
+      running dataset_util.read_examples_list)
+    label_map_dict: A map from string label names to integers ids.
+    image_subdirectory: String specifying subdirectory within the
+      GTSRB dataset directory holding the actual image data.
+    sign_names: An array of sign names with order corresponding
+                to class id in annotation csvs
+
+  Returns:
+    example: The converted tf.Example.
+
+  Raises:
+    ValueError: if the image pointed to by data['filename'] is not a valid JPEG
+  """
+  # Use converted jpg instead of ppm
+  #print('annotation: ' + str(data))
+  filename = data[0].split('.')[0] + '.jpg'
+  img_path = os.path.join(image_subdirectory, filename)
+  #print('img_path: ' + img_path)
+  with tf.gfile.GFile(img_path, 'rb') as fid:
+    encoded_jpg = fid.read()
+  encoded_jpg_io = io.BytesIO(encoded_jpg)
+  image = PIL.Image.open(encoded_jpg_io)
+  if image.format != 'JPEG':
+    raise ValueError('Image format not JPEG')
+  key = hashlib.sha256(encoded_jpg).hexdigest()
+
+  # the annotation format is as following:
+  # Filename;Width;Height;Roi.X1;Roi.Y1;Roi.X2;Roi.Y2;ClassId
+  width = int(data[1])
+  height = int(data[2])
+
+  xmin = []
+  ymin = []
+  xmax = []
+  ymax = []
+  classes = []
+  classes_text = []
+  truncated = []
+  poses = []
+  difficult_obj = []
+  
+  # We already know that in GTSRB dataset, only one traffic sign exist
+  difficult_obj.append(int(0))
+  xmin.append(float(data[3]) / width)
+  ymin.append(float(data[4]) / height)
+  xmax.append(float(data[5]) / width)
+  ymax.append(float(data[6]) / height)
+  class_id = int(data[7])
+  # TODO
+  class_name = sign_names[class_id]
+  classes_text.append(class_name.encode('utf8'))
+  classes.append(label_map_dict[class_name])
+  truncated.append(int(0))
+  poses.append('Frontal'.encode('utf8'))
+
+  example = tf.train.Example(features=tf.train.Features(feature={
+      'image/height': dataset_util.int64_feature(height),
+      'image/width': dataset_util.int64_feature(width),
+      'image/filename': dataset_util.bytes_feature(
+          filename.encode('utf8')),
+      'image/source_id': dataset_util.bytes_feature(
+          filename.encode('utf8')),
+      'image/key/sha256': dataset_util.bytes_feature(key.encode('utf8')),
+      'image/encoded': dataset_util.bytes_feature(encoded_jpg),
+      'image/format': dataset_util.bytes_feature('jpeg'.encode('utf8')),
+      'image/object/bbox/xmin': dataset_util.float_list_feature(xmin),
+      'image/object/bbox/xmax': dataset_util.float_list_feature(xmax),
+      'image/object/bbox/ymin': dataset_util.float_list_feature(ymin),
+      'image/object/bbox/ymax': dataset_util.float_list_feature(ymax),
+      'image/object/class/text': dataset_util.bytes_list_feature(classes_text),
+      'image/object/class/label': dataset_util.int64_list_feature(classes),
+      'image/object/difficult': dataset_util.int64_list_feature(difficult_obj),
+      'image/object/truncated': dataset_util.int64_list_feature(truncated),
+      'image/object/view': dataset_util.bytes_list_feature(poses),
+  }))
+  return example
+
+
+def get_training_examples(dir):
+  examples_list = []
+  for name in os.listdir(dir):
+    #print(name)
+    annotation_file = os.path.join(dir, name, "GT-" + name + ".csv")
+    #print(annotation_file)
+    examples_list = examples_list + dataset_util.read_examples_list(annotation_file)[1:]
+  #print(*examples_list, sep='\n')
+  return examples_list
 
 def create_tf_record(output_filename,
                      label_map_dict,
@@ -180,20 +280,58 @@ def create_tf_record(output_filename,
 
   writer.close()
 
+def create_gtsrb_tf_record(output_filename,
+                           label_map_dict,
+                           data_dir,
+                           examples,
+                           sign_names):
+  """Creates a TFRecord file from examples.
+
+  Args:
+    output_filename: Path to where output file is saved.
+    label_map_dict: The label map dictionary.
+    data_dir: Directory where annotation files are stored.
+    examples: Examples to parse and save to tf record.
+    sign_names: An array of sign names with order corresponding
+                to class id in annotation csvs
+  """
+  writer = tf.python_io.TFRecordWriter(output_filename)
+  for idx, example in enumerate(examples):
+    if idx % 100 == 0:
+      logging.info('On image %d of %d', idx, len(examples))
+    example_data = example.split(';')
+    # the image subfolder structure only exists for training dataset
+    #print('example_data[-1]: ' + example_data[-1])
+    image_subdir = os.path.join(data_dir, format(int(example_data[-1]), '05d'))
+    #print('image_subdir: ' + image_subdir)
+    tf_example = dict_to_gtsrb_tf_example(example_data, label_map_dict, image_subdir, sign_names)
+    writer.write(tf_example.SerializeToString())
+  writer.close()
 
 # TODO: Add test for pet/PASCAL main files.
 def main(_):
   data_dir = FLAGS.data_dir
   label_map_dict = label_map_util.get_label_map_dict(FLAGS.label_map_path)
 
-  logging.info('Reading from Pet dataset.')
-  image_dir = os.path.join(data_dir, 'images')
-  annotations_dir = os.path.join(data_dir, 'annotations')
-  examples_path = os.path.join(annotations_dir, 'trainval.txt')
-  examples_list = dataset_util.read_examples_list(examples_path)
-
+  logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+  logging.info('Reading from GTSRB dataset.')
+  #image_dir = os.path.join(data_dir, 'images')
+  training_dir = os.path.join(data_dir, 'Final_Training/Images')
+  test_dir = os.path.join(data_dir, 'Final_Test/Images')
+  #annotations_dir = os.path.join(data_dir, 'annotations')
+  #examples_path = os.path.join(annotations_dir, 'trainval.txt')
+  #examples_list = dataset_util.read_examples_list(examples_path)
   # Test images are not included in the downloaded data set, so we shall perform
-  # our own split.
+  ## our own split.
+  #random.seed(42)
+  #random.shuffle(examples_list)
+  #num_examples = len(examples_list)
+  #num_train = int(0.7 * num_examples)
+  #train_examples = examples_list[:num_train]
+  #val_examples = examples_list[num_train:]
+  #logging.info('%d training and %d validation examples.',
+  #             len(train_examples), len(val_examples))
+  examples_list = get_training_examples(training_dir)
   random.seed(42)
   random.shuffle(examples_list)
   num_examples = len(examples_list)
@@ -203,12 +341,17 @@ def main(_):
   logging.info('%d training and %d validation examples.',
                len(train_examples), len(val_examples))
 
-  train_output_path = os.path.join(FLAGS.output_dir, 'pet_train.record')
-  val_output_path = os.path.join(FLAGS.output_dir, 'pet_val.record')
-  create_tf_record(train_output_path, label_map_dict, annotations_dir,
-                   image_dir, train_examples)
-  create_tf_record(val_output_path, label_map_dict, annotations_dir,
-                   image_dir, val_examples)
+  sign_name_df = pd.read_csv(os.path.join(data_dir, 'sign_names.csv'), index_col='ClassId')
+  sign_names = sign_name_df.SignName.values
+  #print(*sign_names, sep='\n')
+  train_output_path = os.path.join(FLAGS.output_dir, 'gtsrb_train.record')
+  val_output_path = os.path.join(FLAGS.output_dir, 'gtsrb_val.record')
+  create_gtsrb_tf_record(train_output_path, label_map_dict, training_dir, train_examples, sign_names)
+  create_gtsrb_tf_record(val_output_path, label_map_dict, training_dir, val_examples, sign_names)
+  #create_tf_record(train_output_path, label_map_dict, training_dir,
+  #                 image_dir, train_examples)
+  #create_tf_record(val_output_path, label_map_dict, annotations_dir,
+  #                 image_dir, val_examples)
 
 if __name__ == '__main__':
   tf.app.run()

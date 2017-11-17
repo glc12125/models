@@ -1,0 +1,72 @@
+gsutil cp object_detection/data/gtsrb_train.record gs://${YOUR_GCS_BUCKET}/data/gtsrb_train.record
+
+gsutil cp object_detection/data/gtsrb_val.record gs://${YOUR_GCS_BUCKET}/data/gtsrb_val.record
+
+gsutil cp object_detection/data/gtsrb_traffic_sign_label_map.pbtxt gs://${YOUR_GCS_BUCKET}/data/gtsrb_traffic_sign_label_map.pbtxt
+
+gsutil cp object_detection/data/faster_rcnn_resnet101_coco_11_06_2017/model.ckpt.* gs://${YOUR_GCS_BUCKET}/data/
+
+gsutil cp /Users/liangchuangu/Downloads/faster_rcnn_resnet101_traffic_sign.config gs://${YOUR_GCS_BUCKET}/data/aster_rcnn_resnet101_traffic_sign.config
+
+
+python3 object_detection/train.py \
+    --logtostderr \
+    --pipeline_config_path=models/traffic_sign/faster_rcnn_resnet101_traffic_sign_local.config \
+    --train_dir=models/traffic_sign/train
+
+
+python3 object_detection/eval.py \
+    --logtostderr \
+    --pipeline_config_path=models/traffic_sign/faster_rcnn_resnet101_traffic_sign_local.config \
+    --checkpoint_dir=models/traffic_sign/train \
+    --eval_dir=models/traffic_sign/eval
+
+python object_detection/export_inference_graph.py \
+    --input_type image_tensor \
+    --pipeline_config_path=models/faster_rcnn_resnet101_traffic_sign_local.config \
+    --trained_checkpoint_prefix model.ckpt-1373 \
+    --output_directory exported_graphs
+
+
+    to cloud
+gcloud ml-engine jobs submit training object_detection_`date +%s` \
+    --job-dir=gs://${TRAIN_DIR} \
+    --packages dist/object_detection-0.1.tar.gz,slim/dist/slim-0.1.tar.gz \
+    --module-name object_detection.train \
+    --region us-central1 \
+    --config ${PATH_TO_LOCAL_YAML_FILE} \
+    -- \
+    --train_dir=gs://${TRAIN_DIR} \
+    --pipeline_config_path=gs://${PIPELINE_CONFIG_PATH}
+
+gcloud --account liangchuangu@gmail.com --project gtsrb-185415 ml-engine jobs submit training `whoami`_object_detection_`date +%s` \
+    --job-dir=gs://${YOUR_GCS_BUCKET}/train \
+    --packages dist/object_detection-0.1.tar.gz,slim/dist/slim-0.1.tar.gz \
+    --module-name object_detection.train \
+    --region us-central1 \
+    --config object_detection/samples/cloud/cloud.yml \
+    -- \
+    --train_dir=gs://${YOUR_GCS_BUCKET}/train \
+    --pipeline_config_path=gs://${YOUR_GCS_BUCKET}/data/faster_rcnn_resnet101_traffic_sign.config
+
+    for pet
+
+    python3 object_detection/train.py \
+    --logtostderr \
+    --pipeline_config_path=faster_rcnn_resnet101_pet_local.config \
+    --train_dir=models/pet/train
+
+    python3 object_detection/eval.py \
+    --logtostderr \
+    --pipeline_config_path=faster_rcnn_resnet101_pet_local.config \
+    --checkpoint_dir=models/pet/train \
+    --eval_dir=models/pet/eval
+
+export/frozen graph for detection:
+
+gsutil cp gs://${YOUR_GCS_BUCKET}/train/model.ckpt-${CHECKPOINT_NUMBER}.* .
+python3 object_detection/export_inference_graph.py \
+    --input_type image_tensor \
+    --pipeline_config_path models/traffic_sign/faster_rcnn_resnet101_traffic_sign_local.config \
+    --trained_checkpoint_prefix models/traffic_sign/train/model.ckpt-70802 \
+    --output_directory models/traffic_sign/frozen_graphs
