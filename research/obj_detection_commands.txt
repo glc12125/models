@@ -39,6 +39,8 @@ gcloud ml-engine jobs submit training object_detection_`date +%s` \
     --train_dir=gs://${TRAIN_DIR} \
     --pipeline_config_path=gs://${PIPELINE_CONFIG_PATH}
 
+export YOUR_GCS_BUCKET=traffic_sign_detection_ml_test
+
 gcloud --account liangchuangu@gmail.com --project gtsrb-185415 ml-engine jobs submit training `whoami`_object_detection_`date +%s` \
     --job-dir=gs://${YOUR_GCS_BUCKET}/train \
     --packages dist/object_detection-0.1.tar.gz,slim/dist/slim-0.1.tar.gz \
@@ -48,6 +50,24 @@ gcloud --account liangchuangu@gmail.com --project gtsrb-185415 ml-engine jobs su
     -- \
     --train_dir=gs://${YOUR_GCS_BUCKET}/train \
     --pipeline_config_path=gs://${YOUR_GCS_BUCKET}/data/faster_rcnn_resnet101_traffic_sign.config
+
+gcloud --account liangchuangu@gmail.com --project gtsrb-185415 ml-engine jobs submit training `whoami`_object_detection_eval_`date +%s` \
+    --job-dir=gs://${YOUR_GCS_BUCKET}/train \
+    --packages dist/object_detection-0.1.tar.gz,slim/dist/slim-0.1.tar.gz \
+    --module-name object_detection.eval \
+    --region us-central1 \
+    --scale-tier BASIC_GPU \
+    -- \
+    --checkpoint_dir=gs://${YOUR_GCS_BUCKET}/train \
+    --eval_dir=gs://${YOUR_GCS_BUCKET}/eval \
+    --pipeline_config_path=gs://${YOUR_GCS_BUCKET}/data/faster_rcnn_resnet101_traffic_sign.config
+
+gsutil cp gs://${YOUR_GCS_BUCKET}/train/model.ckpt-200004.* .
+python object_detection/export_inference_graph.py \
+    --input_type image_tensor \
+    --pipeline_config_path object_detection/samples/configs/faster_rcnn_resnet101_traffic_sign.config \
+    --trained_checkpoint_prefix model.ckpt-400005 \
+    --output_directory exported_graphs
 
     for pet
 
@@ -70,3 +90,25 @@ python3 object_detection/export_inference_graph.py \
     --pipeline_config_path models/traffic_sign/faster_rcnn_resnet101_traffic_sign_local.config \
     --trained_checkpoint_prefix models/traffic_sign/train/model.ckpt-70802 \
     --output_directory models/traffic_sign/frozen_graphs
+
+gcloud --account glc12125@gmail.com --project gtsrb-ml ml-engine jobs submit training `whoami`_object_detection_`date +%s` \
+    --job-dir=gs://${YOUR_GCS_BUCKET}/train \
+    --packages dist/object_detection-0.1.tar.gz,slim/dist/slim-0.1.tar.gz \
+    --module-name object_detection.train \
+    --region us-central1 \
+    --config object_detection/samples/cloud/cloud.yml \
+    -- \
+    --train_dir=gs://${YOUR_GCS_BUCKET}/train \
+    --pipeline_config_path=gs://${YOUR_GCS_BUCKET}/data/ssd_inception_v2_traffic_sign.config
+
+
+gcloud --account glc12125@gmail.com --project gtsrb-ml ml-engine jobs submit training `whoami`_object_detection_eval_`date +%s` \
+    --job-dir=gs://${YOUR_GCS_BUCKET}/train \
+    --packages dist/object_detection-0.1.tar.gz,slim/dist/slim-0.1.tar.gz \
+    --module-name object_detection.eval \
+    --region us-central1 \
+    --scale-tier BASIC_GPU \
+    -- \
+    --checkpoint_dir=gs://${YOUR_GCS_BUCKET}/train \
+    --eval_dir=gs://${YOUR_GCS_BUCKET}/eval \
+    --pipeline_config_path=gs://${YOUR_GCS_BUCKET}/data/ssd_inception_v2_traffic_sign.config

@@ -199,7 +199,7 @@ def dict_to_gtsrb_tf_example(data,
   truncated = []
   poses = []
   difficult_obj = []
-  
+
   # We already know that in GTSRB dataset, only one traffic sign exist
   difficult_obj.append(int(0))
   xmin.append(float(data[3]) / width)
