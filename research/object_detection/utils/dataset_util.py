@@ -77,7 +77,7 @@ def recursive_parse_xml_to_dict(xml):
   result = {}
   for child in xml:
     child_result = recursive_parse_xml_to_dict(child)
-    if child.tag != 'object':
+    if child.tag != 'object' and child.tag != 'pt':
       result[child.tag] = child_result[child.tag]
     else:
       if child.tag not in result:

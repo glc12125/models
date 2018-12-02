@@ -1,0 +1,15 @@
+# Generate training labels
+# please generate darknet format labels using darknet scripts
+# and you should have a folder structure like the following:
+# folder/Annotations
+# folder/images
+# folder/train.txt
+python2 object_detection/create_pascal_tf_record_zhongjian.py --label_map_path=object_detection/data/zhongjian_label_map.pbtxt --data_type=zhongjian --set=train --data_dir=/Users/liangchuangu/Development/machine_learning/darknet-traffic/ --output_path=object_detection/data/zhongjian_train.record
+
+# Generate validation labels
+# please generate darknet format labels using darknet scripts
+# and you should have a folder structure like the following:
+# folder/Annotations
+# folder/images
+# folder/val.txt
+python2 object_detection/create_pascal_tf_record_zhongjian.py --label_map_path=object_detection/data/zhongjian_label_map.pbtxt --data_type=zhongjian_validation --set=val --data_dir=/Users/liangchuangu/Development/machine_learning/darknet-traffic/ --output_path=object_detection/data/zhongjian_val.record

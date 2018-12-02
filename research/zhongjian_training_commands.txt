@@ -1,0 +1,4 @@
+
+
+MODEL_DIR=models/zhongjian_more_data/
+python model_main.py --pipeline_config_path=models/zhongjian_more_data/faster_rcnn_resnet101_zhongjian.config --model_dir=${MODEL_DIR} --sample_1_of_n_eval_examples=10 --alsologtostderr
